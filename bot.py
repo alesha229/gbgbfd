@@ -8,8 +8,7 @@ from qr_utils import extract_qrs_from_image
 from image_utils import create_result_images
 import os
 import cv2
-from config import API_TOKEN, ADMINS
-import user_storage
+from config import API_TOKEN
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
@@ -18,6 +17,26 @@ dp = Dispatcher()
 user_data = {}
 user_media_message_ids = {}
 user_cancel_flags = {}
+
+USERS_FILE = 'users.txt'
+
+# Список админов (замени 123456789 на свой user_id)
+ADMINS = {437656500,390887899,5319622027}
+# Множество всех user_id, с которыми был контакт
+all_user_ids = set()
+
+# Загрузка user_id из файла при запуске
+if os.path.exists(USERS_FILE):
+    with open(USERS_FILE, 'r', encoding='utf-8') as f:
+        for line in f:
+            uid = line.strip()
+            if uid.isdigit():
+                all_user_ids.add(int(uid))
+
+def save_user_id(user_id):
+    if user_id not in all_user_ids:
+        with open(USERS_FILE, 'a', encoding='utf-8') as f:
+            f.write(f'{user_id}\n')
 
 @dp.message(CommandStart())
 async def start_handler(message: Message):
@@ -144,30 +163,31 @@ async def process_callback_nav(callback: CallbackQuery):
         await callback.message.answer("Распознавание прервано по вашему запросу. Вы можете отправить новое изображение.")
         await callback.answer("Распознавание отменено")
 
-@dp.message()
-async def handle_all_messages(message: Message):
-    user_storage.add_user(message.from_user.id)
-    # ... остальная логика ...
+@dp.message(~Command('message'))
+async def track_user(message: Message):
+    user_id = message.from_user.id
+    if user_id not in all_user_ids:
+        all_user_ids.add(user_id)
+        save_user_id(user_id)
+    # Этот хендлер больше не мешает обработке команды /message
 
 @dp.message(Command('message'))
-async def admin_broadcast(message: Message):
+async def broadcast_handler(message: Message):
     if message.from_user.id not in ADMINS:
-        await message.answer('У вас нет прав для этой команды.')
+        await message.answer('⛔️ У вас нет прав для этой команды.')
         return
-    # Получаем текст после команды
-    text = message.text[len('/message'):].strip().strip('"')
+    text = message.text[len('/message'):].strip()
     if not text:
-        await message.answer('Укажите текст сообщения: /message "Текст"')
+        await message.answer('Использование: /message текст_рассылки')
         return
-    users = user_storage.get_all_users()
     count = 0
-    for user_id in users:
+    for uid in all_user_ids:
         try:
-            await bot.send_message(user_id, text)
+            await bot.send_message(uid, text)
             count += 1
         except Exception:
             pass
-    await message.answer(f'Сообщение отправлено {count} пользователям.')
+    await message.answer(f'Рассылка завершена. Сообщение отправлено {count} пользователям.')
 
 async def main():
     await dp.start_polling(bot)

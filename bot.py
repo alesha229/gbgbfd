@@ -8,7 +8,8 @@ from qr_utils import extract_qrs_from_image
 from image_utils import create_result_images
 import os
 import cv2
-from config import API_TOKEN
+from config import API_TOKEN, ADMINS
+import user_storage
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
@@ -142,6 +143,31 @@ async def process_callback_nav(callback: CallbackQuery):
         user_cancel_flags[callback.from_user.id] = True
         await callback.message.answer("Распознавание прервано по вашему запросу. Вы можете отправить новое изображение.")
         await callback.answer("Распознавание отменено")
+
+@dp.message()
+async def handle_all_messages(message: Message):
+    user_storage.add_user(message.from_user.id)
+    # ... остальная логика ...
+
+@dp.message(Command('message'))
+async def admin_broadcast(message: Message):
+    if message.from_user.id not in ADMINS:
+        await message.answer('У вас нет прав для этой команды.')
+        return
+    # Получаем текст после команды
+    text = message.text[len('/message'):].strip().strip('"')
+    if not text:
+        await message.answer('Укажите текст сообщения: /message "Текст"')
+        return
+    users = user_storage.get_all_users()
+    count = 0
+    for user_id in users:
+        try:
+            await bot.send_message(user_id, text)
+            count += 1
+        except Exception:
+            pass
+    await message.answer(f'Сообщение отправлено {count} пользователям.')
 
 async def main():
     await dp.start_polling(bot)
